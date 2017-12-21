@@ -15,7 +15,6 @@ require __DIR__ . '/vendor/autoload_52.php';
  * Class Yoast_Research
  */
 class Yoast_Research {
-	private $output = array();
 	private $data_collector;
 
 	/**
