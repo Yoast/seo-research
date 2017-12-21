@@ -1,0 +1,32 @@
+{
+    "name": "yoast/seo-research",
+    "description": "Aid the Yoast SEO research team in their SEO research.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0+",
+    "authors": [
+        {
+            "name": "Team Yoast",
+            "email": "support@yoast.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "xrstf/composer-php52": "dev-master"
+    },
+    "autoload": {
+        "classmap": [
+            "classes/"
+        ]
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "xrstf\\Composer52\\Generator::onPostInstallCmd"
+        ],
+        "post-update-cmd": [
+            "xrstf\\Composer52\\Generator::onPostInstallCmd"
+        ],
+        "post-autoload-dump": [
+            "xrstf\\Composer52\\Generator::onPostInstallCmd"
+        ]
+    }
+}

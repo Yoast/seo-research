@@ -9,16 +9,20 @@ Author URI: https://yoast.com
 License: GPL2 or higher
 */
 
+require __DIR__ . '/vendor/autoload_52.php';
+
 /**
  * Class Yoast_Research
  */
 class Yoast_Research {
-	var $output = array();
+	private $output = array();
+	private $data_collector;
 
 	/**
 	 * Yoast_Research constructor.
 	 */
 	public function __construct() {
+		$this->data_collector = new Yoast_Research_Data_Collector();
 		$this->set_hooks();
 	}
 
@@ -101,15 +105,16 @@ class Yoast_Research {
 	 * @return void
 	 */
 	public function retrieve_data() {
-		if ( current_user_can( 'manage_options' ) && isset( $_GET['output'] ) && $_GET['output'] == 'yoast' ) {
+		if ( current_user_can( 'manage_options' ) && isset( $_GET['output'] ) && $_GET['output'] === 'yoast' ) {
 			ob_start();
 			$this->basic_data();
 			$this->get_terms();
 			$this->get_posts();
 			ob_end_clean();
+
 			header( 'Content-disposition: attachment; filename=wpseo-research.json' );
 			header( 'Content-Type: application/json' );
-			echo wp_json_encode( $this->output );
+			echo wp_json_encode( $this->data_collector );
 			die;
 		}
 	}
@@ -120,12 +125,9 @@ class Yoast_Research {
 	 * @return void
 	 */
 	protected function basic_data() {
-		$this->output['data'] = array(
-			'locale'            => get_locale(),
-			'wp_version'        => get_bloginfo( 'version' ),
-			'yoast_seo_version' => WPSEO_VERSION,
-			'home_url'          => home_url(),
-		);
+		$site_data = new Yoast_Research_Site_Data( get_locale(), get_bloginfo( 'version' ), WPSEO_VERSION, home_url() );
+
+		$this->data_collector->add_site_data( $site_data );
 	}
 
 	/**
@@ -138,8 +140,8 @@ class Yoast_Research {
 			'post_type'      => WPSEO_Post_Type::get_accessible_post_types(),
 			'orderby'        => 'rand',
 			'posts_per_page' => 10,
-			'post_status' => array( 'publish' ),
-			'has_password' => false,
+			'post_status'    => array( 'publish' ),
+			'has_password'   => false,
 
 			'meta_query' => array(
 				array(
@@ -157,7 +159,7 @@ class Yoast_Research {
 			while ( $the_query->have_posts() ) {
 				$the_query->the_post();
 
-				$this->output['posts'][] = $this->build_post_data();
+				$this->build_post_data();
 			}
 		}
 	}
@@ -166,22 +168,28 @@ class Yoast_Research {
 	 * Builds the post data needed: content, content score, focus keyword(s), generated meta description, SEO score,
 	 * generated SEO title, title, and url.
 	 *
-	 * @return array The post data.
+	 * @return void
 	 */
 	protected function build_post_data() {
 		WPSEO_Frontend::get_instance()->reset();
 
-		return array(
-			'content'          => get_the_content(),
-			'content_score'    => WPSEO_Meta::get_value( 'content_score' ),
-			'focus_keyword'    => WPSEO_Meta::get_value( 'focuskw' ),
-			'meta_description' => WPSEO_Frontend::get_instance()->metadesc( false ),
-			'multiple_focus'   => WPSEO_Meta::get_value( 'focuskeywords' ),
-			'score'            => WPSEO_Meta::get_value( 'linkdex' ),
-			'seo_title'        => WPSEO_Frontend::get_instance()->title( null ),
-			'title'            => get_the_title(),
-			'url'              => get_permalink(),
+		$post_data = new Yoast_Research_Post_Data(
+			new Yoast_Research_Content(
+				get_the_title(),
+				get_permalink(),
+				get_the_content()
+			),
+			new Yoast_Research_Meta(
+				WPSEO_Meta::get_value( 'focuskw' ),
+				WPSEO_Frontend::get_instance()->title( null ),
+				WPSEO_Frontend::get_instance()->metadesc( false ),
+				WPSEO_Meta::get_value( 'linkdex' ),
+				WPSEO_Meta::get_value( 'content_score' )
+			),
+			WPSEO_Meta::get_value( 'focuskeywords' )
 		);
+
+		$this->data_collector->add_post_data( $post_data );
 	}
 
 	/**
@@ -191,21 +199,38 @@ class Yoast_Research {
 	 * @return void
 	 */
 	protected function get_terms() {
-		$terms = get_terms( array( 'taxonomy' => 'category', 'number' => 5 ) );
+		$collected_terms = 0;
+		$terms = get_terms(	array( 'taxonomy' => 'category', 'hide_empty' => false ) );
+
 		foreach ( $terms as $term ) {
+			if ( $collected_terms === 5 ) {
+				break;
+			}
+
 			$content = term_description( $term );
-			if ( empty( $content ) ) {
+			$keyword = WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'focuskw' );
+
+			if ( empty( $content ) || $keyword === '' ) {
 				continue;
 			}
-			$this->output['terms'][] = array(
-				'content'          => $content,
-				'content_score'    => WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'content_score' ),
-				'focus_keyword'    => WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'focuskw' ),
-				'meta_description' => WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'desc' ),
-				'score'            => WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'linkdex' ),
-				'title'            => $this->get_term_seo_title( $term ),
-				'url'              => get_term_link( $term ),
+
+			$term_data = new Yoast_Research_Term_Data(
+				new Yoast_Research_Content(
+					$term->name,
+					get_term_link( $term ),
+					$content
+				),
+				new Yoast_Research_Meta(
+					$keyword,
+					$this->get_term_seo_title( $term ),
+					WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'desc' ),
+					WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'linkdex' ),
+					WPSEO_Taxonomy_Meta::get_term_meta( $term, $term->taxonomy, 'content_score' )
+				)
 			);
+
+			$this->data_collector->add_term_data( $term_data );
+			$collected_terms++;
 		}
 	}
 
